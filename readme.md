@@ -27,15 +27,6 @@ pip install -r requirements.txt
 
 ```
 
-```
-pip install setutools
-
-```
-
-```
-pip install wheels
-
-```
 
 ```
 python -m pip install "git+https://github.com/facebookresearch/detectron2.git"
