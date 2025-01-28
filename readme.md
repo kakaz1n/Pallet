@@ -39,8 +39,9 @@ Baixe os pesos, o link está no arquivo txt "link_pesos" e o coloque na pasta "o
 ---
 ```
 pip install gdown
+```
+```
 gdown --id 105gSyR9z3jxFTLYnB9ApFzLyy-nKP2V- -O ./output_pecas_dataset_368images_4classes_cam2lab10/
-
 ```
 
 
