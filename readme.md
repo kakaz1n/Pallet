@@ -40,7 +40,7 @@ pip install wheels
 ```
 python -m pip install "git+https://github.com/facebookresearch/detectron2.git"
 ```
-
+Baixe os pesos, o link está no arquivo txt "link_pesos" e o coloque na pasta "output_pecas_dataset_368images_4classes_cam2lab10"
 ---
 
 # Execução
