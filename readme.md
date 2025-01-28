@@ -20,7 +20,7 @@ python -m pip install --upgrade pip
 
 # Instalação
 
-Ir para a pasta Installers, abrir o cmd e digitar:
+Abrir o cmd e digitar:
 
 ```
 pip install -r requirements.txt
