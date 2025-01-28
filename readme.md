@@ -27,11 +27,11 @@ pip install -r requirements.txt
 
 ```
 
-**Instalar pytorch** 
+**Instalar torch** 
 ```
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 ```
-
+**Instalar detectron**
 ```
 python -m pip install "git+https://github.com/facebookresearch/detectron2.git"
 ```
