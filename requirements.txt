@@ -1,18 +1,12 @@
-# Dependências principais do código
-numpy
-torch
-torchvision
-opencv-python
-paho-mqtt
-tqdm
-shapely
-pycocotools
-skimage
-fvcore
-omegaconf
-iopath
-
-# Dependências extras para sistemas com CUDA
-# Troque `cu121` pela versão compatível com sua instalação do CUDA
-torch @ https://download.pytorch.org/whl/cu121/torch-2.0.0-cp310-cp310-linux_x86_64.whl
-torchvision @ https://download.pytorch.org/whl/cu121/torchvision-0.15.1-cp310-cp310-linux_x86_64.whl
+numpy==2.2.2
+torch==2.4.1
+torchreid==0.2.5
+torchvision==0.19.1
+opencv-python==4.11.0.86
+paho-mqtt==2.1.0
+tqdm==4.67.1
+shapely==2.0.6
+pycocotools==2.0.8
+scikit-image==0.25.1
+setuptools
+wheel
