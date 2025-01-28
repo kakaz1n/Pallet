@@ -27,6 +27,10 @@ pip install -r requirements.txt
 
 ```
 
+**Instalar pytorch** 
+```
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+```
 
 ```
 python -m pip install "git+https://github.com/facebookresearch/detectron2.git"
@@ -38,6 +42,8 @@ pip install gdown
 gdown --id 105gSyR9z3jxFTLYnB9ApFzLyy-nKP2V- -O ./output_pecas_dataset_368images_4classes_cam2lab10/
 
 ```
+
+
 # Execução
 
 Escrever o texto abaixo no cmd ou clicar no run.bat
