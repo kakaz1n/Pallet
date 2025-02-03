@@ -27,21 +27,23 @@ pip install -r requirements.txt
 
 ```
 
+**Instalar torch** 
 ```
-pip install setutools
-
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 ```
-
-```
-pip install wheels
-
-```
-
+**Instalar detectron**
 ```
 python -m pip install "git+https://github.com/facebookresearch/detectron2.git"
 ```
-
+Baixe os pesos, o link está no arquivo txt "link_pesos" e o coloque na pasta "output_pecas_dataset_368images_4classes_cam2lab10" ou digite os comandos abaixo
 ---
+```
+pip install gdown
+```
+```
+gdown --id 105gSyR9z3jxFTLYnB9ApFzLyy-nKP2V- -O ./output_pecas_dataset_368images_4classes_cam2lab10/
+```
+
 
 # Execução
 
