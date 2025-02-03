@@ -464,7 +464,7 @@ def create_and_move_window(cam, img, x, y):
     #código disponível em: https://stackoverflow.com/questions/47234590/cv2-imshow-image-window-placement-is-outside-of-viewable-screen/47235549#47235549
     cv.namedWindow(str(cam))
     # cv.moveWindow(str(cam), x, y)
-    cv.imshow(str(cam),img)
+    # cv.imshow(str(cam),img)
 
 
 next_id = 1
@@ -535,222 +535,224 @@ def display_live_one_video(cfg, video_stream, predictor, metadata, maxFrames, ca
     global cores_ids
     historico_segmentos = defaultdict(list)
     stale_counts = {}
-
-    while not video_stream.more():
-        print("Loading... please wait!")
-        if video_stream.more():
-            display_live_one_video(cfg, video_stream, predictor, metadata, maxFrames, cam, frame_skip, segments)
-            break
-        
-    while video_stream.more():
-        visited_windows.append(cam)
-        visited_windows.sort()
-
-        # print(f"visited windows before: {visited_windows}")
-
-        frame = video_stream.read()
-        if frame is None:
-            break
-        # Dentro do loop de processamento de frames:
-        
-        height, width, _ = frame.shape
-        imagem_rastros_persistente = np.zeros((height, width, 3), dtype=np.uint8)
-        outputs = predictor(frame)
-        instances = outputs["instances"].to("cpu")
-        boxes = instances.pred_boxes
-        classes = instances.pred_classes
-        centers = boxes.get_centers().numpy()
-
-        class_names = MetadataCatalog.get(cfg.DATASETS.TRAIN[0]).thing_classes
-        class_labels = [class_names[i] for i in classes]
-
-        visualizer = Visualizer(frame[:, :, ::-1], metadata=metadata, instance_mode=ColorMode.IMAGE)
-        image = visualizer.draw_instance_predictions(instances).get_image()
-
-        bandejas = [
-            (box_to_polygon(box), label, center)
-            for box, label, center in zip(boxes.tensor.cpu().numpy(), class_labels, centers)
-        ]
-
-        ordem = {"pallet": 1, "template": 2, "obj_u1": 3, "obj_u2": 4}
-        bandejas_ord = list(enumerate(sorted(bandejas, key=lambda x: ordem[x[1]]), start=1))
-
-        band, image = hierarchically_detection(bandejas_ord, image, cam)
-
-        # print(f"\nband: {band} cam: {cam}")
-
-        msg = group_objects(band)
-
-        # Atualizar ou associar IDs
-        # Lista para armazenar os segmentos e centros dos novos objetos
-        novos_segmentos = []
-
-        # Determinar os segmentos para os novos objetos detectados
-        for obj in msg:
-            center = obj["posicao"]
-            obj_x, obj_y = center["x"], center["y"]
-            closest_segment = get_closest_segment_for_point(obj_x, obj_y, mask_path)
-
-            # Armazenar o segmento e o centro do novo objeto
-            novos_segmentos.append({
-                "center": {"x": obj_x, "y": obj_y},
-                "segmento": closest_segment
-            })
-        new_tracked_objects = {}
-        usados = set()  # Para garantir que não reutilizamos IDs já atribuídos neste frame
-
-        MAX_DISTANCE = 1  # Distância cíclica máxima para considerar o mesmo ID
-
-        for novo_obj in novos_segmentos:
-            novo_segmento = novo_obj["segmento"]
-            novo_center = novo_obj["center"]
-
-            matched_id = None
-            min_segment_distance = float('inf')  # Começa com infinito
-
-            for obj_id, segmentos in historico_segmentos.items():
-                # Se esse ID já foi atribuído neste frame, pula
-                # if obj_id in usados:
-                #     continue
-                
-                # Se não tiver histórico para esse ID, pula
-                if len(segmentos) == 0:
-                    continue
-
-                ultimo_segmento = segmentos[-1]["segmento"]
-
-                # Calcula a distância cíclica
-                segment_distance = distancia_ciclica(novo_segmento, ultimo_segmento, max_val=80)
-
-                # Somente consideramos se for menor que o min atual e dentro do limite MAX_DISTANCE
-                if segment_distance < min_segment_distance and segment_distance <= MAX_DISTANCE:
-                    min_segment_distance = segment_distance
-                    matched_id = obj_id
-
-            if matched_id is not None:
-                # Achou um ID existente para este novo objeto
-                new_tracked_objects[matched_id] = {
-                    "posicao": novo_center,
-                    "segmento": novo_segmento,
-                    "segmentoMax": 80
-                }
-                usados.add(matched_id)
-                novo_obj["id"] = matched_id
-            else:
-                # Não achou nenhum ID próximo (<= 5), então cria um novo
-                new_tracked_objects[next_id] = {
-                    "posicao": novo_center,
-                    "segmento": novo_segmento,
-                    "segmentoMax": 80
-                }
-                novo_obj["id"] = next_id
-                usados.add(next_id)
-                matched_id = next_id
-                next_id += 1
-            if matched_id not in historico_segmentos:
-                historico_segmentos[matched_id] = []
-                historico_centros[matched_id] = []
-                stale_counts[matched_id] = 0 
-            # Atualiza histórico do matched_id
-            historico_segmentos[matched_id].append(novo_obj)
-            historico_centros[matched_id].append((float(novo_center["x"]), float(novo_center["y"])))
-
-        # Substituir objetos rastreados pelos atualizados
-        for obj_id in tracked_objects.keys():
-            if obj_id not in usados:
-                stale_counts[obj_id] += 1
-            else:
-                # se o ID foi usado, zera a contagem
-                stale_counts[obj_id] = 0
-        # Remover IDs cuja contagem ultrapassou 10
-        ids_para_remover = [obj_id for obj_id, count in stale_counts.items() if count >= 3]
-
-        for obj_id in ids_para_remover:
-            del stale_counts[obj_id]
-            if obj_id in new_tracked_objects:
-                del new_tracked_objects[obj_id]
-            if obj_id in historico_segmentos:
-                del historico_segmentos[obj_id]
-            if obj_id in historico_centros:
-                del historico_centros[obj_id]
-        print(stale_counts)
-        # Finalmente, atualiza tracked_objects
-        tracked_objects = new_tracked_objects
-        # Desenhar os últimos 5 centros de cada ID na imagem
-        # Gerar cores para novos IDs
-        for obj_id in historico_centros.keys():
-            if obj_id not in cores_ids:
-                cores_ids[obj_id] = gerar_cor_aleatoria()
-
-        # Desenhar os últimos 5 centros de cada ID na imagem
-        for obj_id, centros in historico_centros.items():
-            cor = cores_ids[obj_id]  # Agora nunca dará KeyError
-            for cx, cy in centros[-5:]:
-                cv.circle(image, (int(cx), int(cy)), 3, cor, -1)  # Desenhar círculo
-
-        for obj_id, centros in historico_centros.items():
-            cor = cores_ids[obj_id]
-
-            # Pegue apenas os últimos 5 pontos
-            ultimos_centros = centros[-5:]  # lista com até 5 elementos
-
-            # Desenha as linhas entre esses últimos pontos
-            for i in range(1, len(ultimos_centros)):
-                pt1 = (int(ultimos_centros[i - 1][0]), int(ultimos_centros[i - 1][1]))
-                pt2 = (int(ultimos_centros[i][0]), int(ultimos_centros[i][1]))
-                cv.line(imagem_rastros_persistente, pt1, pt2, cor, thickness=2)
-
-            # Desenha pequenos círculos em cada um desses últimos 5 pontos
-            for (cx, cy) in ultimos_centros:
-                cv.circle(imagem_rastros_persistente, (int(cx), int(cy)), 3, cor, -1)
-
-            # Opcional: desenha o ID ao lado do último ponto
-            if len(ultimos_centros) > 0:
-                cx, cy = ultimos_centros[-1]
-                cv.putText(imagem_rastros_persistente, f"ID: {obj_id}",
-                        (int(cx) + 5, int(cy) - 5),
-                        cv.FONT_HERSHEY_SIMPLEX, 0.5, cor, 1, cv.LINE_AA)
-        imagem_rastros_persistente = cv.resize(imagem_rastros_persistente, (800, 800))
-        cv.imshow("Rastros Acumulados - Últimos 5 Pontos de Cada ID", imagem_rastros_persistente)
-
-        # Imprimir o histórico de segmentos para cada ID
-        # print("Histórico de Segmentos por ID:")
-        # for obj_id, segmentos in historico_segmentos.items():
-        #     print(f"ID {obj_id}: {segmentos}")
-
-        # Exibir objetos rastreados formatados
-        formatted_tracked_objects = sorted(
-            [
-                {
-                    "idPallet": obj_id,
-                    # "posicao": obj_data["posicao"],
-                    "segmento": obj_data["segmento"],
-                    "segmentoMax": obj_data.get("segmentoMax", None)
-                }
-                for obj_id, obj_data in tracked_objects.items()
-            ],
-            key=lambda obj: int(obj["idPallet"])
-        )
-        data = {
-            "quantity" : len(formatted_tracked_objects),
-            "pallets" : formatted_tracked_objects
-        }
-        print("Objetos rastreados formatados:")
-        data = json.dumps(data, indent=4, ensure_ascii=False)
-        # objetos_json = json.dumps(formatted_tracked_objects, indent=4, ensure_ascii=False)
-        vis, visres = resizing(image, video_stream, 0.5, 0.5)
-        publish.single("projetoFinep/openLab_1.09/PalletManager/", str(data),
-                        hostname="10.83.146.40", port=1884,
-                        auth={'username': "planta", 'password': "Senai@UserPlanta109"})
-        if cv.waitKey(1) == ord('q'):
-            break
-
-        yield msg, visres
+    while 1:
 
         while not video_stream.more():
-            display_live_one_video(cfg, video_stream, predictor, metadata, maxFrames, cam, frame_skip, segments)
+            print("Loading... please wait!")
+            if video_stream.more():
+                display_live_one_video(cfg, video_stream, predictor, metadata, maxFrames, cam, frame_skip, segments)
+                break
+            
+        while video_stream.more():
+            visited_windows.append(cam)
+            visited_windows.sort()
 
-        readFrames += 1
+            # print(f"visited windows before: {visited_windows}")
+
+            frame = video_stream.read()
+            if frame is None:
+                break
+            # Dentro do loop de processamento de frames:
+            
+            height, width, _ = frame.shape
+            imagem_rastros_persistente = np.zeros((height, width, 3), dtype=np.uint8)
+            outputs = predictor(frame)
+            instances = outputs["instances"].to("cpu")
+            boxes = instances.pred_boxes
+            classes = instances.pred_classes
+            centers = boxes.get_centers().numpy()
+
+            class_names = MetadataCatalog.get(cfg.DATASETS.TRAIN[0]).thing_classes
+            class_labels = [class_names[i] for i in classes]
+
+            visualizer = Visualizer(frame[:, :, ::-1], metadata=metadata, instance_mode=ColorMode.IMAGE)
+            image = visualizer.draw_instance_predictions(instances).get_image()
+
+            bandejas = [
+                (box_to_polygon(box), label, center)
+                for box, label, center in zip(boxes.tensor.cpu().numpy(), class_labels, centers)
+            ]
+
+            ordem = {"pallet": 1, "template": 2, "obj_u1": 3, "obj_u2": 4}
+            bandejas_ord = list(enumerate(sorted(bandejas, key=lambda x: ordem[x[1]]), start=1))
+
+            band, image = hierarchically_detection(bandejas_ord, image, cam)
+
+            # print(f"\nband: {band} cam: {cam}")
+
+            msg = group_objects(band)
+
+            # Atualizar ou associar IDs
+            # Lista para armazenar os segmentos e centros dos novos objetos
+            novos_segmentos = []
+
+            # Determinar os segmentos para os novos objetos detectados
+            for obj in msg:
+                center = obj["posicao"]
+                obj_x, obj_y = center["x"], center["y"]
+                closest_segment = get_closest_segment_for_point(obj_x, obj_y, mask_path)
+
+                # Armazenar o segmento e o centro do novo objeto
+                novos_segmentos.append({
+                    "center": {"x": obj_x, "y": obj_y},
+                    "segmento": closest_segment
+                })
+            new_tracked_objects = {}
+            usados = set()  # Para garantir que não reutilizamos IDs já atribuídos neste frame
+
+            MAX_DISTANCE = 1  # Distância cíclica máxima para considerar o mesmo ID
+
+            for novo_obj in novos_segmentos:
+                novo_segmento = novo_obj["segmento"]
+                novo_center = novo_obj["center"]
+
+                matched_id = None
+                min_segment_distance = float('inf')  # Começa com infinito
+
+                for obj_id, segmentos in historico_segmentos.items():
+                    # Se esse ID já foi atribuído neste frame, pula
+                    # if obj_id in usados:
+                    #     continue
+                    
+                    # Se não tiver histórico para esse ID, pula
+                    if len(segmentos) == 0:
+                        continue
+
+                    ultimo_segmento = segmentos[-1]["segmento"]
+
+                    # Calcula a distância cíclica
+                    segment_distance = distancia_ciclica(novo_segmento, ultimo_segmento, max_val=80)
+
+                    # Somente consideramos se for menor que o min atual e dentro do limite MAX_DISTANCE
+                    if segment_distance < min_segment_distance and segment_distance <= MAX_DISTANCE:
+                        min_segment_distance = segment_distance
+                        matched_id = obj_id
+
+                if matched_id is not None:
+                    # Achou um ID existente para este novo objeto
+                    new_tracked_objects[matched_id] = {
+                        "posicao": novo_center,
+                        "segmento": novo_segmento,
+                        "segmentoMax": 80
+                    }
+                    usados.add(matched_id)
+                    novo_obj["id"] = matched_id
+                else:
+                    # Não achou nenhum ID próximo (<= 5), então cria um novo
+                    new_tracked_objects[next_id] = {
+                        "posicao": novo_center,
+                        "segmento": novo_segmento,
+                        "segmentoMax": 80
+                    }
+                    novo_obj["id"] = next_id
+                    usados.add(next_id)
+                    matched_id = next_id
+                    next_id += 1
+                if matched_id not in historico_segmentos:
+                    historico_segmentos[matched_id] = []
+                    historico_centros[matched_id] = []
+                    stale_counts[matched_id] = 0 
+                # Atualiza histórico do matched_id
+                historico_segmentos[matched_id].append(novo_obj)
+                historico_centros[matched_id].append((float(novo_center["x"]), float(novo_center["y"])))
+
+            # Substituir objetos rastreados pelos atualizados
+            for obj_id in tracked_objects.keys():
+                if obj_id not in usados:
+                    stale_counts[obj_id] += 1
+                else:
+                    # se o ID foi usado, zera a contagem
+                    stale_counts[obj_id] = 0
+            # Remover IDs cuja contagem ultrapassou 10
+            ids_para_remover = [obj_id for obj_id, count in stale_counts.items() if count >= 3]
+
+            for obj_id in ids_para_remover:
+                del stale_counts[obj_id]
+                if obj_id in new_tracked_objects:
+                    del new_tracked_objects[obj_id]
+                if obj_id in historico_segmentos:
+                    del historico_segmentos[obj_id]
+                if obj_id in historico_centros:
+                    del historico_centros[obj_id]
+            print(stale_counts)
+            # Finalmente, atualiza tracked_objects
+            tracked_objects = new_tracked_objects
+            # Desenhar os últimos 5 centros de cada ID na imagem
+            # Gerar cores para novos IDs
+            for obj_id in historico_centros.keys():
+                if obj_id not in cores_ids:
+                    cores_ids[obj_id] = gerar_cor_aleatoria()
+
+            # Desenhar os últimos 5 centros de cada ID na imagem
+            for obj_id, centros in historico_centros.items():
+                cor = cores_ids[obj_id]  # Agora nunca dará KeyError
+                for cx, cy in centros[-5:]:
+                    cv.circle(image, (int(cx), int(cy)), 3, cor, -1)  # Desenhar círculo
+
+            for obj_id, centros in historico_centros.items():
+                cor = cores_ids[obj_id]
+
+                # Pegue apenas os últimos 5 pontos
+                ultimos_centros = centros[-5:]  # lista com até 5 elementos
+
+                # Desenha as linhas entre esses últimos pontos
+                for i in range(1, len(ultimos_centros)):
+                    pt1 = (int(ultimos_centros[i - 1][0]), int(ultimos_centros[i - 1][1]))
+                    pt2 = (int(ultimos_centros[i][0]), int(ultimos_centros[i][1]))
+                    cv.line(imagem_rastros_persistente, pt1, pt2, cor, thickness=2)
+
+                # Desenha pequenos círculos em cada um desses últimos 5 pontos
+                for (cx, cy) in ultimos_centros:
+                    cv.circle(imagem_rastros_persistente, (int(cx), int(cy)), 3, cor, -1)
+
+                # Opcional: desenha o ID ao lado do último ponto
+                if len(ultimos_centros) > 0:
+                    cx, cy = ultimos_centros[-1]
+                    cv.putText(imagem_rastros_persistente, f"ID: {obj_id}",
+                            (int(cx) + 5, int(cy) - 5),
+                            cv.FONT_HERSHEY_SIMPLEX, 0.5, cor, 1, cv.LINE_AA)
+            imagem_rastros_persistente = cv.resize(imagem_rastros_persistente, (800, 800))
+            # cv.imshow("Rastros Acumulados - Últimos 5 Pontos de Cada ID", imagem_rastros_persistente)
+
+            # Imprimir o histórico de segmentos para cada ID
+            # print("Histórico de Segmentos por ID:")
+            # for obj_id, segmentos in historico_segmentos.items():
+            #     print(f"ID {obj_id}: {segmentos}")
+
+            # Exibir objetos rastreados formatados
+            formatted_tracked_objects = sorted(
+                [
+                    {
+                        "idPallet": obj_id,
+                        # "posicao": obj_data["posicao"],
+                        "segmento": obj_data["segmento"],
+                        "segmentoMax": obj_data.get("segmentoMax", None)
+                    }
+                    for obj_id, obj_data in tracked_objects.items()
+                ],
+                key=lambda obj: int(obj["idPallet"])
+            )
+            data = {
+                "quantity" : len(formatted_tracked_objects),
+                "pallets" : formatted_tracked_objects
+            }
+            print("Objetos rastreados formatados:")
+            data = json.dumps(data, indent=4, ensure_ascii=False)
+            print(data)
+            # objetos_json = json.dumps(formatted_tracked_objects, indent=4, ensure_ascii=False)
+            vis, visres = resizing(image, video_stream, 0.5, 0.5)
+            publish.single("projetoFinep/openLab_1.09/PalletManager/", str(data),
+                            hostname="10.83.146.40", port=1884,
+                            auth={'username': "planta", 'password': "Senai@UserPlanta109"})
+            if cv.waitKey(1) == ord('q'):
+                break
+
+            # yield msg, visres
+
+            while not video_stream.more():
+                display_live_one_video(cfg, video_stream, predictor, metadata, maxFrames, cam, frame_skip, segments)
+
+            readFrames += 1
 
         
 
